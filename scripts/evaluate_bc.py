@@ -1,7 +1,7 @@
 import argparse
 import random
 from pathlib import Path
-
+import time
 import numpy as np
 import torch
 
@@ -90,6 +90,19 @@ def parse_args():
         "--debug",
         action="store_true",
         help="Print observation and action information on the first step.",
+    )
+
+    parser.add_argument(
+        "--render",
+        action="store_true",
+        help="Open the interactive MuJoCo viewer.",
+    )
+
+    parser.add_argument(
+        "--render-delay",
+        type=float,
+        default=0.03,
+        help="Delay after every rendered simulation step.",
     )
 
     return parser.parse_args()
@@ -285,6 +298,8 @@ def run_episode(
     video_height=512,
     video_width=512,
     video_fps=20,
+    render=False,
+    render_delay=0.0,
 ):
     video_writer = None
 
@@ -309,7 +324,8 @@ def run_episode(
 
     try:
         observation = env.reset()
-
+        if render:
+            env.render(mode="human")
         if debug:
             print(
                 "Environment observation keys:",
@@ -389,6 +405,11 @@ def run_episode(
             observation, reward, done, info = env.step(
                 action
             )
+            if render:
+                env.render(mode="human")
+
+                if render_delay > 0:
+                    time.sleep(render_delay)
 
             episode_return += float(reward)
             episode_length = timestep + 1
@@ -418,9 +439,12 @@ def run_episode(
             "return": episode_return,
         }
 
+
+
     finally:
         if video_writer is not None:
             video_writer.close()
+    
 
 
 
@@ -481,7 +505,7 @@ def main():
 
     env = EnvUtils.create_env_from_metadata(
         env_meta=env_metadata,
-        render=False,
+        render=args.render,
         render_offscreen=record_video,
         use_image_obs=False,
     )
@@ -541,6 +565,8 @@ def main():
                 video_height=args.video_height,
                 video_width=args.video_width,
                 video_fps=args.video_fps,
+                render=args.render,
+                render_delay=args.render_delay,
             )
 
             episode_results.append(result)
@@ -599,6 +625,10 @@ def main():
         f"Average return: {average_return:.4f}"
     )
     print("=" * 60)
+
+    print("Interactive render:", args.render)
+    print("Record video:", record_video)
+    
 
 
 if __name__ == "__main__":
