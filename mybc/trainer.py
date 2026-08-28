@@ -18,7 +18,7 @@ def observation_to_device(
 def bath_to_device(batch,device,non_blocking=False):
     return{
         "obs": observation_to_device(batch["obs"],device,non_blocking=non_blocking),
-        "actions":batch["actions"].to(device, non_blocking=non_blocking),
+        "actions":batch["action"].to(device, non_blocking=non_blocking),
     }
 
 def train_one_epoch(policy, normalizer,data_loader,optimizer,device,max_grad_norm=None):

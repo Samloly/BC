@@ -5,7 +5,7 @@ import torch.nn as nn
 class MLPPolicy(nn.Module):
     def __init__(
         self,
-        obs_shpaes,
+        obs_shapes,
         obs_keys,
         action_dim,
         hidden_dims=(256,256)
@@ -13,7 +13,7 @@ class MLPPolicy(nn.Module):
         super().__init__()
 
         self.obs_keys = obs_keys
-        self.obs_shapes = obs_shpaes
+        self.obs_shapes = obs_shapes
         self.action_dim = action_dim
         self.hidden_dims = hidden_dims
 
@@ -42,7 +42,7 @@ class MLPPolicy(nn.Module):
                 )
             )
 
-            layers.append(nn.Relu())
+            layers.append(nn.ReLU())
             input_dim = hidden_dim
         
         layers.append(
@@ -66,13 +66,13 @@ class MLPPolicy(nn.Module):
             value = observation[key]
             value = value.reshape(
                 value.shape[0],
-                dim=-1,
+                -1,
             )
 
             flattened.append(value)
         return torch.cat(
             flattened,
-            dim=-1,
+            -1,
         )
 
     def forward(self, observation):

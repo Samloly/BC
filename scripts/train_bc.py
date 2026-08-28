@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from mybc.dataset import RobomimicDataset
 from mybc.normalizer import (
     ObservationNormalizer,
-    compute_observation_statistics,
+    compute_obs_statistics,
 )
 from mybc.policy import MLPPolicy
 from mybc.trainer import (
@@ -191,7 +191,7 @@ def main():
     )
 
     statistics = (
-        compute_observation_statistics(
+        compute_obs_statistics(
             dataset_path=args.dataset,
             split="train",
             obs_keys=obs_keys,
@@ -252,10 +252,10 @@ def main():
         iter(train_loader)
     )
 
-    print(
-        "Action batch:",
-        tuple(example_batch["actions"].shape),
-    )
+    # print(
+    #     "Action batch:",
+    #     tuple(example_batch["actions"].shape),
+    # )
 
     for key, value in example_batch[
         "obs"

@@ -44,7 +44,7 @@ def compute_obs_statistics(
         std = values.std(axis=0)
 
         statistics[key] = {
-            "mean" : mean(axis=0).astype(np.float32),
+            "mean" : mean.astype(np.float32),
             "std": np.maximum(
                 std,
                 1e-6,

@@ -84,7 +84,7 @@ class RobomimicDataset(Dataset):
         demo_name,timestep = self.index[0]
 
         with h5py.File(self.dataset_path,"r") as file:
-            action = file["data"][demo_name]["aciton"][timestep]
+            action = file["data"][demo_name]["actions"][timestep]
             return int(action.size)
     
 
