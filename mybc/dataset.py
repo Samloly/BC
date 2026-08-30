@@ -95,7 +95,7 @@ class RobomimicDataset(Dataset):
     
     def __getstate__(self):
         state = self.__dict__.copy()
-        state["file"] = None
+        state["_file"] = None
         return state
     
     def __del__(self):
@@ -116,9 +116,9 @@ class SequenceRobomimicDataset(Dataset):
         self.dataset_path = dataset_path
         self.split = split
         self.obs_keys = obs_keys
-        self.sequece_length = sequence_length
+        self.sequence_length = sequence_length
         self.pad_sequence = pad_sequence
-        self.get_pad_msk = get_pad_mask
+        self.get_pad_mask = get_pad_mask
         self.index = []
         self._file =None
         
@@ -131,7 +131,7 @@ class SequenceRobomimicDataset(Dataset):
                 if self.pad_sequence:
                     number_of_sequence = trajectory_length
                 else:
-                    number_of_sequence = max(trajectory_length-self.sequece_length+1,0)
+                    number_of_sequence = max(trajectory_length-self.sequence_length+1,0)
 
                 for start_timestep in range (number_of_sequence):
                     self.index.append((demo_name,start_timestep))
@@ -142,13 +142,13 @@ class SequenceRobomimicDataset(Dataset):
         return self._file
     
     @staticmethod
-    def _repeat_last_value(value,tartget_length):
+    def _repeat_last_value(value,target_length):
         current_length = value.shape[0]
 
-        if current_length == tartget_length:
+        if current_length == target_length:
             return value
         
-        padding_length = tartget_length-current_length
+        padding_length = target_length-current_length
         repeat_shape = (padding_length, )+(1,)*(value.ndim-1)
         padding = value[-1:].repeat(repeat_shape)
         return torch.cat((value,padding),0)
@@ -162,7 +162,7 @@ class SequenceRobomimicDataset(Dataset):
 
         trajectory_length = demo["actions"].shape[0]
 
-        request_end_timestep = start_timestep+self.sequece_length
+        request_end_timestep = start_timestep+self.sequence_length
         actual_end_timestep = min(request_end_timestep,trajectory_length)
 
         valid_length = actual_end_timestep-start_timestep
@@ -171,12 +171,12 @@ class SequenceRobomimicDataset(Dataset):
         for key in self.obs_keys:
             value = torch.as_tensor(demo["obs"][key][start_timestep:actual_end_timestep],dtype=torch.float32)
             if self.pad_sequence:
-                value=self._repeat_last_value(value=value,tartget_length=self.sequece_length)
+                value=self._repeat_last_value(value=value,target_length=self.sequence_length)
             observation[key] = value
         actions = torch.as_tensor(demo["actions"][start_timestep:actual_end_timestep],dtype=torch.float32)
 
         if self.pad_sequence:
-            actions = self._repeat_last_value(value=actions,tartget_length=self.sequece_length)
+            actions = self._repeat_last_value(value=actions,target_length=self.sequence_length)
 
         sample = {
             "obs":observation,
@@ -186,8 +186,8 @@ class SequenceRobomimicDataset(Dataset):
             "valid_length": valid_length,
         }
 
-        if self.get_pad_msk:
-            pad_mask = torch.zeros(self.sequece_length,1,dtype=torch.float32)
+        if self.get_pad_mask:
+            pad_mask = torch.zeros(self.sequence_length,1,dtype=torch.float32)
             pad_mask[:valid_length]=1.0
             sample["pad_mask"]=pad_mask
         return sample
@@ -215,7 +215,7 @@ class SequenceRobomimicDataset(Dataset):
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        state["file"] = None
+        state["_file"] = None
         return state
     
     def __del__(self):
