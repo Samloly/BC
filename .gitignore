@@ -1,0 +1,17 @@
+# Datasets
+/data/
+*.hdf5
+*.h5
+
+# Checkpoints
+/checkpoints/
+*.pth
+*.pt
+
+# Results and videos
+/results/
+*.mp4
+
+# Python cache
+__pycache__/
+*.pyc

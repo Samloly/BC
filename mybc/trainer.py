@@ -22,6 +22,9 @@ def batch_to_device(batch,device,non_blocking=False):
     }
     if "pad_mask" in batch:
         device_batch["pad_mask"] = batch["pad_mask"].to(device,non_blocking=non_blocking)
+    if "is_pad" in batch:
+        device_batch["is_pad"]=batch["is_pad"].to(device,non_blocking=non_blocking)
+    
     return device_batch
 
 def compute_bc_loss(predicted_actions,target_actions, pad_mask=None):
