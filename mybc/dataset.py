@@ -103,7 +103,7 @@ def decode_demo_names(values):
 #         # super().__init__()
 
 class RobomimicDataset(Dataset):
-    def __init__(self,dataset_path,split,low_dim_keys,rgb_keys):
+    def __init__(self,dataset_path,split,low_dim_keys,rgb_keys=()):
         super().__init__()
         self.dataset_path = dataset_path
         self.split = split

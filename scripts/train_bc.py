@@ -174,16 +174,16 @@ def main():
     train_dataset = RobomimicDataset(
         dataset_path=args.dataset,
         split="train",
-        obs_keys=obs_keys,
+        low_dim_keys=obs_keys,
     )
 
     valid_dataset = RobomimicDataset(
         dataset_path=args.dataset,
         split="valid",
-        obs_keys=obs_keys,
+        low_dim_keys=obs_keys,
     )
     obs_shapes = (
-        train_dataset.get_obs_shape()
+        train_dataset.get_obs_shapes()
     )
 
     action_dim = (
