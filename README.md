@@ -12,12 +12,9 @@
 - `Lift`：机械臂抓取并抬起方块
 - `Can`：机械臂将罐子放入指定容器
 运行命令：
-- python robomimic/scripts/download_datasets.py `
-  --tasks lift can `
-  --dataset_types ph `
-  --hdf5_types low_dim `
-  --download_dir "E:\datasets\robomimic"
-
+```bash
+python robomimic/scripts/download_datasets.py --tasks lift can --dataset_types ph --hdf5_types low_dim --download_dir ".\robomimic"
+```
 ## train/evaluate
 - BC:
   train:
