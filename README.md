@@ -59,4 +59,8 @@ eval:
 ```bash
     python -m scripts.evaluate_act --checkpoint checkpoints/can_ph_cvae_act.pth --dataset data/can/ph/image_v15.hdf5 --episodes 10 --horizon 400 --execution-horizon 1 --temporal-ensemble --temporal-ensemble-coeff 0.01
 ```
+保存验证视频时，在任意验证命令末尾增加：
+```bash
+  --video-dir "results\videos"
+```
 
