@@ -16,6 +16,10 @@ from mybc.normalizer import (
     ObservationNormalizer,
 )
 
+from mybc.temporal_ensemble import (
+    TemporalActionEnsembler,
+)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -91,6 +95,22 @@ def parse_args():
         "--video-fps",
         type=int,
         default=20,
+    )
+
+    parser.add_argument(
+        "--temporal-ensemble",
+        action="store_true",
+        help=(
+            "Query ACT every environment step "
+            "and ensemble overlapping action "
+            "chunk predictions."
+        ),
+    )
+
+    parser.add_argument(
+        "--temporal-ensemble-coeff",
+        type=float,
+        default=0.01,
     )
 
     return parser.parse_args()
@@ -521,6 +541,13 @@ def main():
         ):
             observation = env.reset()
 
+            temporal_ensembler = None
+            if args.temporal_ensemble:
+                temporal_ensembler = TemporalActionEnsembler(
+                    chunk_size=chunk_size,
+                    action_dim=checkpoint["action_dim"],
+                    coefficient=args.temporal_ensemble_coeff,
+                )
             episode_success = False
             episode_return = 0.0
             episode_steps = 0
@@ -571,42 +598,57 @@ def main():
 
                     with torch.inference_mode():
                         output = policy(observation=normalized_observation)
+
                         normalized_action_chunk = (
                             output["predicted_actions"]
                         )
 
-                        action_chunk = (
-                            action_normalizer
-                            .denormalize(
-                                normalized_action_chunk
+                        if args.temporal_ensemble:
+                            normalized_action = temporal_ensembler.update(
+                                action_chunk=normalized_action_chunk,
+                                timestep=episode_steps
                             )
-                        )
+                        
+                            action = action_normalizer.denormalize(normalized_action)
+                            action = torch.clamp(action,-1.0,1.0)
+                            action_chunk = action.unsqueeze(0).cpu().numpy()
+                        else:
 
-                        action_chunk = (
-                            torch.clamp(
-                                action_chunk,
-                                -1.0,
-                                1.0,
+                            action_chunk = (
+                                action_normalizer
+                                .denormalize(
+                                    normalized_action_chunk
+                                )
                             )
-                        )
 
-                    # [1,K,A] -> [K,A]
-                    action_chunk = (
-                        action_chunk[0]
-                        .cpu()
-                        .numpy()
-                    )
+                            action_chunk = (
+                                torch.clamp(
+                                    action_chunk,
+                                    -1.0,
+                                    1.0,
+                                )
+                            )
+
+                            # [1,K,A] -> [K,A]
+                            action_chunk = (
+                                action_chunk[0]
+                                .cpu()
+                                .numpy()
+                            )
 
                     number_of_queries += 1
 
-                    actions_to_execute = min(
-                        args.execution_horizon,
-                        action_chunk.shape[0],
-                        (
-                            args.horizon
-                            - episode_steps
-                        ),
-                    )
+                    if args.temporal_ensemble:
+                        actions_to_execute=1
+                    else:
+                        actions_to_execute = min(
+                            args.execution_horizon,
+                            action_chunk.shape[0],
+                            (
+                                args.horizon
+                                - episode_steps
+                            ),
+                        )
 
                     for action_index in range(
                         actions_to_execute
@@ -737,6 +779,18 @@ def main():
         f"Average steps: "
         f"{average_steps:.2f}"
     )
+    # [Temporal Ensemble新增]
+    print(
+        "Temporal ensemble:",
+        args.temporal_ensemble,
+    )
+
+    # [Temporal Ensemble新增]
+    if args.temporal_ensemble:
+        print(
+            "Temporal ensemble coefficient:",
+            args.temporal_ensemble_coeff,
+        )
     print("=" * 60)
 
 
