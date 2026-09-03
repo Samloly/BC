@@ -160,18 +160,21 @@ def parse_args():
     )
 
     parser.add_argument(
-        "--overfit-one-batch",
-        action="store_true",
-        help=(
-            "Repeatedly train on one fixed "
-            "batch to verify the pipeline."
-        ),
+    "--latent-dim",
+    type=int,
+    default=32,
     )
 
     parser.add_argument(
-        "--overfit-steps",
+        "--num-latent-encoder-layers",
         type=int,
-        default=1000,
+        default=4,
+    )
+
+    parser.add_argument(
+        "--kl-weight",
+        type=float,
+        default=10.0,
     )
 
     return parser.parse_args()
@@ -322,13 +325,17 @@ def train_one_epoch(
     optimizer,
     device,
     max_grad_norm,
+    kl_weight
 ):
     policy.train()
     observation_normalizer.eval()
     action_normalizer.eval()
 
-    total_loss = 0.0
-    total_weight = 0
+    total_l1_loss = 0.0
+    total_l1_weight = 0
+
+    total_kl_loss = 0.0
+    total_samples = 0
     total_grad_norm = 0.0
     number_of_updates = 0
 
@@ -348,21 +355,25 @@ def train_one_epoch(
             ),
         )
 
-        predicted_actions = policy(
-            normalized_obs
+        output = policy(
+            observation=normalized_obs,
+            actions = target_actions,
+            is_pad=is_pad,
         )
 
-        loss, loss_weight = (
-            compute_masked_l1_loss(
-                predicted_actions=(
-                    predicted_actions
-                ),
-                target_actions=(
-                    target_actions
-                ),
-                is_pad=is_pad,
-            )
+        loss_result = compute_act_loss(
+            predicted_actions=output["predicted_actions"],
+            target_actions=target_actions,
+            is_pad=is_pad,
+            mu=output["mu"],
+            logvar=output["logvar"],
+            kl_weight=kl_weight,
         )
+
+        loss = loss_result["loss"]
+        l1_loss = loss_result["l1_loss"]
+        kl_loss = loss_result["kl_loss"]
+        l1_weight = loss_result["loss_weight"]
 
         optimizer.zero_grad(
             set_to_none=True
@@ -385,19 +396,22 @@ def train_one_epoch(
 
         optimizer.step()
 
-        total_loss += (
-            float(loss.detach())
-            * loss_weight
-        )
-
-        total_weight += loss_weight
+        batch_size = target_actions.shape[0]
+        total_l1_loss+=float(l1_loss.detach())*batch_size
+        total_l1_weight+=l1_weight
+        total_kl_loss = float(kl_loss.detach())*batch_size
+        total_samples +=batch_size
         number_of_updates += 1
+
+    average_l1_loss = total_l1_loss/max(total_l1_weight,1)
+    average_kl_loss = total_kl_loss/max(total_samples,1)
 
     metrics = {
         "loss": (
-            total_loss
-            / max(total_weight, 1)
+            average_l1_loss+kl_weight*average_kl_loss
         ),
+        "l1_loss":average_l1_loss,
+        "kl_loss":average_kl_loss,
         "num_updates": (
             number_of_updates
         ),
@@ -419,13 +433,18 @@ def validate(
     action_normalizer,
     data_loader,
     device,
+    kl_weight,
 ):
     policy.eval()
     observation_normalizer.eval()
     action_normalizer.eval()
 
-    total_loss = 0.0
-    total_weight = 0
+    total_l1_loss = 0.0
+    total_l1_weight = 0
+
+    total_kl_loss = 0.0
+    total_samples = 0
+
     number_of_batches = 0
 
     for raw_batch in data_loader:
@@ -444,138 +463,84 @@ def validate(
             ),
         )
 
-        predicted_actions = policy(
-            normalized_obs
+        output = policy(
+            observation=normalized_obs,
+            actions=target_actions,
+            is_pad=is_pad,
         )
 
-        loss, loss_weight = (
-            compute_masked_l1_loss(
-                predicted_actions=(
-                    predicted_actions
-                ),
-                target_actions=(
-                    target_actions
-                ),
-                is_pad=is_pad,
-            )
+        predicted_actions = output[
+            "predicted_actions"
+        ]
+
+        loss_result = compute_act_loss(
+            predicted_actions=(
+                predicted_actions
+            ),
+            target_actions=(
+                target_actions
+            ),
+            is_pad=is_pad,
+            mu=output["mu"],
+            logvar=output["logvar"],
+            kl_weight=kl_weight,
         )
 
-        total_loss += (
-            float(loss)
-            * loss_weight
+        l1_loss = loss_result[
+            "l1_loss"
+        ]
+
+        kl_loss = loss_result[
+            "kl_loss"
+        ]
+
+        l1_weight = loss_result[
+            "loss_weight"
+        ]
+
+        batch_size = int(
+            target_actions.shape[0]
         )
 
-        total_weight += loss_weight
+        total_l1_loss += (
+            float(l1_loss)
+            * l1_weight
+        )
+
+        total_l1_weight += (
+            l1_weight
+        )
+
+        total_kl_loss += (
+            float(kl_loss)
+            * batch_size
+        )
+
+        total_samples += batch_size
         number_of_batches += 1
+
+    average_l1_loss = (
+        total_l1_loss
+        / max(total_l1_weight, 1)
+    )
+
+    average_kl_loss = (
+        total_kl_loss
+        / max(total_samples, 1)
+    )
 
     return {
         "loss": (
-            total_loss
-            / max(total_weight, 1)
+            average_l1_loss
+            + kl_weight
+            * average_kl_loss
         ),
+        "l1_loss": average_l1_loss,
+        "kl_loss": average_kl_loss,
         "num_batches": (
             number_of_batches
         ),
     }
-
-
-def overfit_one_batch(
-    policy,
-    observation_normalizer,
-    action_normalizer,
-    raw_batch,
-    optimizer,
-    device,
-    max_grad_norm,
-    steps,
-):
-    policy.train()
-    observation_normalizer.eval()
-    action_normalizer.eval()
-
-    (
-        normalized_obs,
-        target_actions,
-        is_pad,
-    ) = prepare_batch(
-        raw_batch=raw_batch,
-        device=device,
-        observation_normalizer=(
-            observation_normalizer
-        ),
-        action_normalizer=(
-            action_normalizer
-        ),
-    )
-
-    first_loss = None
-    final_loss = None
-
-    for step in range(
-        1,
-        steps + 1,
-    ):
-        predicted_actions = policy(
-            normalized_obs
-        )
-
-        loss, _ = (
-            compute_masked_l1_loss(
-                predicted_actions=(
-                    predicted_actions
-                ),
-                target_actions=(
-                    target_actions
-                ),
-                is_pad=is_pad,
-            )
-        )
-
-        optimizer.zero_grad(
-            set_to_none=True
-        )
-
-        loss.backward()
-
-        if max_grad_norm is not None:
-            torch.nn.utils.clip_grad_norm_(
-                policy.parameters(),
-                max_grad_norm,
-            )
-
-        optimizer.step()
-
-        current_loss = float(
-            loss.detach()
-        )
-
-        if first_loss is None:
-            first_loss = current_loss
-
-        final_loss = current_loss
-
-        if (
-            step == 1
-            or step % 50 == 0
-            or step == steps
-        ):
-            print(
-                f"Overfit step "
-                f"{step:04d}/{steps} | "
-                f"loss={current_loss:.6f}"
-            )
-
-    print("=" * 60)
-    print(
-        "Initial loss:",
-        first_loss,
-    )
-    print(
-        "Final loss:",
-        final_loss,
-    )
-    print("=" * 60)
-
 
 def save_checkpoint(
     output_path,
@@ -598,7 +563,7 @@ def save_checkpoint(
 
     checkpoint = {
         "model_type": (
-            "deterministic_act"
+            "cvae_act"
         ),
 
         "policy_state_dict": (
@@ -677,6 +642,13 @@ def save_checkpoint(
         "dataset_path": str(
             args.dataset
         ),
+        "latent_dim":int(args.latent_dim),
+        "num_latent_encoder_layers": int(
+            args.num_latent_encoder_layers
+        ),
+        "kl_weight": float(
+            args.kl_weight
+        ),
     }
 
     torch.save(
@@ -684,6 +656,33 @@ def save_checkpoint(
         output_path,
     )
 
+def compute_kl_loss(mu,logvar):
+    kl_per_dimension = -0.5*(1.0+logvar-mu.pow(2)-logvar.exp())
+    return kl_per_dimension.sum(dim=-1).mean()
+
+def compute_act_loss(
+        predicted_actions,
+        target_actions,
+        is_pad,
+        mu,
+        logvar,
+        kl_weight,
+    ):
+    l1_loss,loss_weight = compute_masked_l1_loss(
+        predicted_actions=predicted_actions,
+        target_actions=target_actions,
+        is_pad=is_pad
+    )
+    kl_loss = compute_kl_loss(mu,logvar)
+
+    total_loss = l1_loss+kl_weight*kl_loss
+    
+    return{
+        "loss":total_loss,
+        "l1_loss":l1_loss,
+        "kl_loss":kl_loss,
+        "loss_weight":loss_weight
+    }
 
 def main():
     args = parse_args()
@@ -801,6 +800,8 @@ def main():
             pretrained_backbone=(
                 not args.no_pretrained_backbone
             ),
+            latent_dim=args.latent_dim,
+            num_latent_encoder_layers=args.num_latent_encoder_layers
         ).to(device)
 
         optimizer = build_optimizer(
@@ -881,20 +882,25 @@ def main():
             )
         )
 
-        with torch.no_grad():
-            example_prediction = (
-                policy(example_obs)
-            )
-
-        expected_shape = (
-            example_batch[
-                "actions"
-            ].shape
+        example_target_actions = action_normalizer.normalize(example_batch_device["actions"])
+        example_target_actions = example_target_actions.masked_fill(
+            example_batch_device["is_pad"].unsqueeze(-1),
+            0.0,
         )
+
+        with torch.no_grad():
+            example_output = policy(
+                observation=example_obs,
+                actions=example_target_actions,
+                is_pad = example_batch_device["is_pad"],
+            )
+            example_prediction = example_output["predicted_actions"]
+
+        example_action_shape = example_batch_device["actions"].shape
 
         print(
             "Target actions:",
-            tuple(expected_shape),
+            tuple(example_action_shape),
         )
 
         print(
@@ -908,34 +914,31 @@ def main():
             tuple(
                 example_prediction.shape
             )
-            != tuple(expected_shape)
+            != tuple(example_action_shape)
         ):
             raise RuntimeError(
                 "ACT output shape does "
                 "not match target shape."
             )
 
-        if args.overfit_one_batch:
-            overfit_one_batch(
-                policy=policy,
-                observation_normalizer=(
-                    observation_normalizer
-                ),
-                action_normalizer=(
-                    action_normalizer
-                ),
-                raw_batch=example_batch,
-                optimizer=optimizer,
-                device=device,
-                max_grad_norm=(
-                    args.max_grad_norm
-                ),
-                steps=(
-                    args.overfit_steps
-                ),
-            )
+        expected_latent_shape = example_batch_device["actions"].shape[0],args.latent_dim
+        print(
+            "Mu:",
+            tuple(
+                example_output["mu"].shape
+            ),
+        )
 
-            return
+        print(
+            "Logvar:",
+            tuple(
+                example_output[
+                    "logvar"
+                ].shape
+            ),
+        )
+
+        
 
         args.history_output.parent.mkdir(
             parents=True,
@@ -968,6 +971,7 @@ def main():
                     max_grad_norm=(
                         args.max_grad_norm
                     ),
+                    kl_weight=args.kl_weight,
                 )
             )
 
@@ -981,6 +985,7 @@ def main():
                 ),
                 data_loader=valid_loader,
                 device=device,
+                kl_weight=args.kl_weight
             )
 
             history_item = {
@@ -988,9 +993,13 @@ def main():
                 "train_loss": float(
                     train_metrics["loss"]
                 ),
+                "train_l1_loss":float(train_metrics["l1_loss"]),
+                "train_kl_loss":float(train_metrics["kl_loss"]),
                 "validation_loss": float(
                     valid_metrics["loss"]
                 ),
+                "validation_l1_loss":float(valid_metrics["l1_loss"]),
+                "validation_kl_loss":float(valid_metrics["kl_loss"]),
             }
 
             if "grad_norm" in train_metrics:
@@ -1010,11 +1019,18 @@ def main():
                 f"Epoch "
                 f"{epoch:03d}/"
                 f"{args.epochs} | "
-                f"train_loss="
+                f"train_total="
                 f"{train_metrics['loss']:.6f} | "
-                f"valid_loss="
-                f"{valid_metrics['loss']:.6f}",
-                end="",
+                f"train_l1="
+                f"{train_metrics['l1_loss']:.6f} | "
+                f"train_kl="
+                f"{train_metrics['kl_loss']:.6f} | "
+                f"valid_total="
+                f"{valid_metrics['loss']:.6f} | "
+                f"valid_l1="
+                f"{valid_metrics['l1_loss']:.6f} | "
+                f"valid_kl="
+                f"{valid_metrics['kl_loss']:.6f}"
             )
 
             if "grad_norm" in train_metrics:

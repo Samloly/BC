@@ -236,18 +236,6 @@ def load_policy(
         weights_only=False,
     )
 
-    model_type = checkpoint.get(
-        "model_type"
-    )
-
-    if model_type not in (
-        "deterministic_act",
-        "act",
-    ):
-        raise ValueError(
-            "Expected a deterministic ACT "
-            f"checkpoint, got {model_type!r}."
-        )
 
     required_keys = (
         "policy_state_dict",
@@ -262,6 +250,9 @@ def load_policy(
         "nhead",
         "num_decoder_layers",
         "dim_feedforward",
+        "latent_dim",
+        "num_latent_encoder_layers",
+        "kl_weight"
     )
 
     missing_keys = [
@@ -320,6 +311,8 @@ def load_policy(
                 0.1,
             )
         ),
+        latent_dim=int(checkpoint["latent_dim"]),
+        num_latent_encoder_layers=int(checkpoint["num_latent_encoder_layers"]),
         pretrained_backbone=False,
     ).to(device)
 
@@ -577,10 +570,9 @@ def main():
                     )
 
                     with torch.inference_mode():
+                        output = policy(observation=normalized_observation)
                         normalized_action_chunk = (
-                            policy(
-                                normalized_observation
-                            )
+                            output["predicted_actions"]
                         )
 
                         action_chunk = (
