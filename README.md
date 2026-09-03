@@ -26,7 +26,30 @@ python robomimic/scripts/download_datasets.py --tasks lift can --dataset_types p
 ```bash
     python -m scripts.evaluate_bc --checkpoint "checkpoints\best_bc_mlp.pth" --dataset ".\datasets\robomimic\lift\ph\low_dim_v15.hdf5" --episodes 10 --horizon 400
 ```
-- ACT:
+
+- `BC-RNN`
+
+train:
+```bash
+    python -m scripts.train_bc_rnn --dataset ".\datasets\robomimic\lift\ph\low_dim_v15.hdf5" --output "checkpoints\best_bc_rnn.pth" --history-output "results\bc_rnn_loss_history.json" --use-pad-mask
+```
+eval:
+```bash
+    python -m scripts.evaluate_bc_rnn --checkpoint "checkpoints\best_bc_rnn.pth" --dataset "E:\datasets\robomimic\lift\ph\low_dim_v15.hdf5" --episodes 10 --horizon 400
+```
+
+-`BC-Transformer`
+
+train:
+```bash
+    python -m scripts.train_bc_transformer --dataset ".\datasets\robomimic\lift\ph\low_dim_v15.hdf5" --output "checkpoints\best_bc_transformer.pth" --history-output "results\bc_transformer_loss_history.json"
+```
+eval:
+```bash
+    python -m scripts.evaluate_bc_transformer --checkpoint "checkpoints\best_bc_transformer.pth" --dataset "E:\datasets\robomimic\lift\ph\low_dim_v15.hdf5" --episodes 10 --horizon 400
+```
+
+- `ACT`:
 
   train:
 ```bash
