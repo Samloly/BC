@@ -268,6 +268,7 @@ def load_policy(
         "chunk_size",
         "d_model",
         "nhead",
+        "num_encoder_layers",
         "num_decoder_layers",
         "dim_feedforward",
         "latent_dim",
@@ -315,6 +316,7 @@ def load_policy(
         nhead=int(
             checkpoint["nhead"]
         ),
+        num_encoder_layers=int(checkpoint["num_encoder_layers"]),
         num_decoder_layers=int(
             checkpoint[
                 "num_decoder_layers"
@@ -339,7 +341,8 @@ def load_policy(
     policy.load_state_dict(
         checkpoint[
             "policy_state_dict"
-        ]
+        ],
+        strict=True
     )
 
     observation_normalizer = (
