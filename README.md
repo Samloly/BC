@@ -53,7 +53,7 @@ eval:
 
   train:
 ```bash
-    python -m scripts.train_act --dataset ".\datasets\robomimic\lift\ph\image_v15.hdf5" --output "checkpoints\best_deterministic_act.pth" --history-output "results\act_loss_history.json" --chunk-size 20 --kl-weight 10
+    python -m scripts.train_act --dataset data/can/ph/image_v15.hdf5 --output checkpoints/can_ph_cvae_act.pth --epochs 200 --batch-size 4 --chunk-size 20 --latent-dim 32 --kl-weight 1 --no-pretrained-backbone
 ```
   eval:
 ```bash

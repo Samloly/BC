@@ -118,12 +118,13 @@ class MultiCameraSpatialEncoder(nn.Module):
             kernel_size=1,
         )
 
-        self.camera_embedding = nn.Embedding(
-            num_embeddings=len(self.camera_keys),
+        self.position_encoder = PositionEmbeddingSine(
             embedding_dim=self.d_model,
+            temperature=10000,
+            normalize=True,
         )
+        
 
-        nn.init.normal_(self.camera_embedding.weight,mean=0.0,std=0.02)
 
     def forward(self,observation):
         images_by_camera = []
@@ -154,31 +155,149 @@ class MultiCameraSpatialEncoder(nn.Module):
         #[B*C.d_model,Hf,Wf]
         feature_maps = self.feature_projection(feature_maps)
 
+        position_maps = self.position_encoder(feature_maps)
+
         _,_,feature_height,feature_width = feature_maps.shape
 
-        number_of_spatial_tokens = feature_height*feature_width
-
-        # [B*C,Hf*Wf,d_model]
-        tokens = feature_maps.flatten(start_dim=2).transpose(1,2)
-        
-        #[B,C,Hf*Wf,d_model]
-        tokens = tokens.reshape(batch_size,number_of_cameras,number_of_spatial_tokens,self.d_model)
-
-        position_embedding = build_2d_sincos_position_embedding(
-            height=feature_height,
-            width=feature_width,
-            embedding_dim=self.d_model,
-            device=tokens.device,
-            dtype=tokens.dtype
+        feature_maps = feature_maps.reshape(
+            batch_size,
+            number_of_cameras,
+            self.d_model,
+            feature_height,
+            feature_width
         )
 
-        #[1，1，H*fWf,d_model]
-        position_embedding = position_embedding.view(1,1,number_of_spatial_tokens,self.d_model)
+        position_maps =position_maps.reshape(
+            batch_size,
+            number_of_cameras,
+            self.d_model,
+            feature_height,
+            feature_width
+        )
 
-        #[1,C,1,d_model]
-        camera_embedding = self.camera_embedding.weight.view(1,number_of_cameras,1,self.d_model)
+        features_by_camera = [
+            feature_maps[:,camera_index]
+            for camera_index in range(number_of_cameras)
+        ]
 
-        tokens = tokens+position_embedding+camera_embedding
+        positions_by_camera = [
+            position_maps[:,camera_index]
+            for camera_index in range(number_of_cameras)
+        ]
 
-        tokens = tokens.reshape(batch_size,number_of_cameras*number_of_spatial_tokens,self.d_model)
-        return tokens
+        feature_maps = torch.cat(features_by_camera,dim=3)
+        position_maps = torch.cat(positions_by_camera,dim=3)
+
+        # number_of_spatial_tokens = feature_height*feature_width
+
+        # [B*C,Hf*Wf,d_model]
+        visual_features = feature_maps.flatten(start_dim=2).transpose(1,2)
+
+        visual_positions = position_maps.flatten(start_dim=2).transpose(1,2)
+        
+        return {
+            "features": visual_features,
+            "positions":visual_positions
+        }
+    
+class PositionEmbeddingSine(nn.Module):
+    """
+    DETR-style two-dimensional sine/cosine
+    position embedding.
+
+    Input:
+        feature_map:
+            [B, C, H, W]
+
+        mask:
+            Optional [B, H, W].
+            True means padded/invalid position.
+
+    Output:
+        position_embedding:
+            [B, d_model, H, W]
+    """
+    def __init__(
+        self,
+        embedding_dim=256,
+        temperature=10000,
+        normalize=True,
+        scale=None
+    ):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.num_position_features = embedding_dim//2
+
+        self.temperature = temperature 
+        self.normalize = normalize
+
+        self.scale = 2.0*math.pi if scale is None else scale
+
+    def forward(self,feature_map,mask=None):
+        """
+            feature_map: [B,C,H,W]
+            position:[B,D,H,W]
+        """
+        batch_size,_,height,width = feature_map.shape
+        # [B,H,W]
+        if mask is None:
+            mask = torch.zeros(
+                batch_size,
+                height,
+                width,
+                dtype=torch.bool,
+                device=feature_map.device
+            )
+        
+        valid_mask = ~mask
+        #纵向累加
+        y_embedding = valid_mask.cumsum(dim=1,dtype=torch.float32)
+        #横向累加
+        x_embedding = valid_mask.cumsum(dim=2,dtype=torch.float32)
+        # 归一化到[0,2pi]
+        if self.normalize:
+            epsilon = 1e-6
+            y_embedding=y_embedding/(y_embedding[:,-1:,:]+epsilon)*self.scale
+            x_embedding = x_embedding/(x_embedding[:,:,-1:]+epsilon)*self.scale
+        
+        dimension = torch.arange(self.num_position_features,dtype=torch.float32,device=feature_map.device)
+
+        dimension = self.temperature ** (
+            2
+            * torch.div(
+                dimension,
+                2,
+                rounding_mode="floor",
+            )
+            / self.num_position_features
+        )
+
+        position_x = x_embedding[:,:,:,None]/dimension
+        position_y = y_embedding[:,:,:,None]/dimension
+
+        position_x = torch.stack(
+            (
+                position_x[:, :, :, 0::2].sin(),
+                position_x[:, :, :, 1::2].cos(),
+            ),
+            dim=4,
+        ).flatten(3)
+
+        position_y = torch.stack(
+            (
+                position_y[:, :, :, 0::2].sin(),
+                position_y[:, :, :, 1::2].cos()
+            ),
+            dim=4
+        ).flatten(3)
+
+        position = torch.cat(
+            (
+                position_y,position_x
+            ),
+            dim=3
+        )
+
+        # [B, H, W, D] -> [B, D, H, W]
+        position = position.permute(0,3,1,2)
+        return position.to(dtype=feature_map.dtype)

@@ -103,7 +103,7 @@ def parse_args():
     parser.add_argument(
         "--num-workers",
         type=int,
-        default=0,
+        default=4,
     )
 
     parser.add_argument(
@@ -122,6 +122,12 @@ def parse_args():
         "--nhead",
         type=int,
         default=8,
+    )
+
+    parser.add_argument(
+        "--num-encoder-layers",
+        type=int,
+        default=4,
     )
 
     parser.add_argument(
@@ -194,31 +200,11 @@ def compute_masked_l1_loss(predicted_actions,target_actions,is_pad):
         ~is_pad
     ).unsqueeze(-1)
 
-    expanded_mask = (
-        valid_mask.expand_as(
-            absolute_error
-        )
-    )
+    masked_error = absolute_error*valid_mask.to(dtype=absolute_error.dtype)
+    loss = masked_error.mean()
+    loss_weight = masked_error.numel()
 
-    loss_weight = (
-        expanded_mask.sum()
-    )
-
-    loss = (
-        absolute_error
-        .masked_select(
-            expanded_mask
-        )
-        .sum()
-        / loss_weight.clamp_min(1)
-    )
-
-    return (
-        loss,
-        int(
-            loss_weight.detach().item()
-        ),
-    )
+    return loss, loss_weight
 
 
 def prepare_batch(
@@ -397,9 +383,9 @@ def train_one_epoch(
         optimizer.step()
 
         batch_size = target_actions.shape[0]
-        total_l1_loss+=float(l1_loss.detach())*batch_size
+        total_l1_loss+=float(l1_loss.detach())*l1_weight
         total_l1_weight+=l1_weight
-        total_kl_loss = float(kl_loss.detach())*batch_size
+        total_kl_loss += float(kl_loss.detach())*batch_size
         total_samples +=batch_size
         number_of_updates += 1
 
@@ -617,6 +603,10 @@ def save_checkpoint(
             args.nhead
         ),
 
+        "num_encoder_layers": int(
+            args.num_encoder_layers
+        ),
+
         "num_decoder_layers": int(
             args.num_decoder_layers
         ),
@@ -790,6 +780,7 @@ def main():
             chunk_size=args.chunk_size,
             d_model=args.d_model,
             nhead=args.nhead,
+            num_encoder_layers=args.num_encoder_layers,
             num_decoder_layers=(
                 args.num_decoder_layers
             ),
